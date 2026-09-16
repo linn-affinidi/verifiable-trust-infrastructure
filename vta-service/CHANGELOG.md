@@ -2,6 +2,87 @@
 
 Notable changes to the published crates. Generated from conventional commits by
 [git-cliff](https://git-cliff.org) when a release is cut — do not edit by hand.
+## [0.31.0](https://github.com/linn-affinidi/verifiable-trust-infrastructure/compare/vta-service-v0.30.0...vta-service-v0.31.0) — 2026-09-16
+
+
+### Added
+
+- **backup**: Back up a DIDComm/TSP-only VTA with the chunkedTrustTask algorithm ([#1522](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/1522))
+
+* build(deps): trust-tasks-rs 0.21.1, the release carrying the chunked backup specs
+
+  0.21.1 is the first release with `vta/backup/get-chunk/1.0`,
+  `put-chunk/1.0`, `initiate-{export,import}/1.1` and
+  `finalize-import/1.1` (trustoverip/dtgwg-trust-tasks-tf#474). A
+  dispatched URI the registry has no schema for fails
+  `every_served_uri_has_a_published_spec_or_is_tracked_debt`, so the floor
+  moves with the tasks that need it.
+
+- **vta-service**: Tune the VTA's rate limits at runtime ([#1519](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/1519))
+
+* feat(vta-service)!: tune the VTA's rate limits at runtime
+
+  The per-IP limiters were tower_governor layers built once with the router, so
+  changing a quota needed a config edit and a restart — exactly when an operator
+  facing 429s can least afford one.
+
+  The limiters are now our own axum middleware over governor's keyed limiter
+  (already in the graph via tower_governor, whose spoof-safe client-IP key
+  extractors are reused unchanged). The running service reads the four [server]
+  quotas from the shared config on every request and swaps in fresh buckets when
+  a quota changes; a change resets that limiter's buckets, and a patch that
+  leaves a quota alone keeps them. trust_xff stays restart-only. The 429 contract
+  is unchanged.
+
+  rate_limit_interval_secs, rate_limit_burst, did_log_rate_limit_interval_secs
+  and did_log_rate_limit_burst are registered in the config registry as mutable
+  integer keys, applied live and persisted to config.toml: intervals 1-3600,
+  bursts 1-10000, super-admin only, through config/patch like every other key.
+  Their names come from vta_sdk::rate_limit, which the 429 hints also use.
+  pnm and cnm `config update` gain --rate-limit-interval-secs,
+  --rate-limit-burst, --did-log-rate-limit-interval-secs and
+  --did-log-rate-limit-burst; `config get` shows the keys.
+
+  Adds docs/02-vta/rate-limiting.md and links it from the docs index,
+  non-interactive setup and the setup example.
+
+
+
+### Fixed
+
+- **webvh**: Refuse to delete a DID whose hosting server is unregistered ([#1518](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/1518))
+
+`dids delete` on a DID whose `server_id` was no longer registered deleted the
+  local record and skipped the delete on the hosting server without reporting
+  it. `get_server` returning `None` set no `daemon_cleanup_error`, so the published
+  did.jsonl stayed live on the host, and the only credentials that could remove
+  it (the record's mnemonic and the DID's keys) were deleted with the record.
+
+  VTI R2.1 (Remote-First): no local commit before the remote effect. The deletion
+  now refuses up front, before revoking or deleting anything, as a `Conflict`
+  blocker on REST, DIDComm and TSP. The message names the fix: re-register the
+  server with `servers add --id <id> --did <server-did>` and retry. The offline
+  preview shows the same blocker. Serverless DIDs are unaffected.
+
+  `vta did-mgmt dids delete --local-only` is the explicit opt-in for a host that
+  is gone for good, where `servers add` cannot succeed because the server DID no
+  longer resolves. It is honoured only for an unregistered server. For a
+  registered or serverless DID it is refused. The result says the host copy
+  remains. It is offline-only because the `vta/webvh/dids/delete/1.0` payload is
+  generated from the specification with `additionalProperties: false`. An online
+  opt-in needs a `localOnly` member in dtgwg-trust-tasks-tf first.
+
+  `pnm did-mgmt dids delete` also discarded `daemonCleanupError`, the partial
+  success the specification says a consumer MUST surface, because the SDK's
+  `delete_did_webvh` returns `()`. The new
+  `VtaClient::delete_did_webvh_with_outcome` returns the generated response type,
+  and the CLI prints the warning.
+
+  Library additions: `DeleteDidOptions`, `delete_did_webvh_with`,
+  `plan_did_deletion_with`, and `MockVta::webvh_host_deletes`.
+
+
+
 ## [0.30.0](https://github.com/OpenVTC/verifiable-trust-infrastructure/compare/vta-service-v0.29.0...vta-service-v0.30.0) — 2026-09-16
 
 
