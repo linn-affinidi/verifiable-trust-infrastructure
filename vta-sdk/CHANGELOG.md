@@ -2,6 +2,162 @@
 
 Notable changes to the published crates. Generated from conventional commits by
 [git-cliff](https://git-cliff.org) when a release is cut — do not edit by hand.
+## [0.69.0](https://github.com/linn-affinidi/verifiable-trust-infrastructure/compare/vta-sdk-v0.68.0...vta-sdk-v0.69.0) — 2026-10-14
+
+
+### Added
+
+- **vta**: Rooms/owner/group/{create,add} — found a sealed room's group and admit members from the owner's agent ([#2088](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/2088))
+
+* feat(vta): rooms/owner/group/{create,add} — found a sealed room's group and admit members from the owner's agent
+
+  A sealed room (`attributed`, `private`) cannot be written to until its MLS
+  group exists, and the owner's half of a group — founding it, admitting a
+  member — was library code only. The VTA now serves both owner tasks
+  (trust-tasks-tf #763):
+
+  - `rooms/owner/group/create/0.1` founds the group with the owner as its only
+    leaf, at room epoch 1, the epoch a host records at registration. The gate
+    is the one issuing the room's credentials uses — control of its signing
+    key — checked by a new `keys::require_key_nameable` that applies
+    `sign_payload`'s scope, status, context and caller-key-filter gates
+    without signing anything. A room this VTA already holds a group for is
+    refused `alreadyExists`, never replaced.
+  - `rooms/owner/group/add/0.1` admits a member's KeyPackage, remote first:
+    the add is built on a copy and kept as a pending admission
+    (`room-add:<room>` in `room_groups`, the advanced group snapshot with its
+    link, commit and Welcome) beside the untouched live group; the room is
+    advanced at its host with `rooms/epoch/mint` (link, commit, the owner's
+    `admin` presentation); only an accepted advance replaces the live group.
+    A refusal (`hostRefused`, or `epochConflict` on `nonSequential`) discards
+    it. An unknown outcome (`hostUnreachable`) KEEPS it, and the next admission
+    asks the host its epoch (`rooms/info`) and applies or discards it first —
+    a key holder cannot process its own commit from the wire, so the pending
+    group is the only way to follow a host that did advance. The Welcome is
+    returned for delivery to the newcomer's key holder, never sent to the host.
+    The KeyPackage must identify `member` (`keyPackageInvalid` otherwise); a
+    member already in the group is `alreadyMember`; no `admin` grant in the
+    vault is `noAuthority`, before anything is built.
+
+- **vtc**: Console Storage page, moving a room's storage, and the rooms' defaults ([#2081](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/2081))
+
+P9 part 3b (docs/05-design-notes/data-rooms-files.md §7, §8.1).
+
+  - Storage (/storage, vtc.rooms.admin): every storage config with what it
+    holds against its capacity, its credential state (never a credential) and
+    its health; configs whose credential is `required` — as after a restore —
+    are listed first. A config's own page probes it (optionally writing,
+    reading back and deleting a canary) and shows each step, changes its
+    label, capacity or default, and retires it. "New storage" creates a
+    `local` config or an `s3` config through an external account at the
+    community's VTA, named by its context and identifier: the form asks for
+    nothing secret. Kinds and auth modes this build does not serve (ambient,
+    sealed, gcs, walrus) are not offered.
+  - A room's page gains "Send new uploads to other storage"
+    (vtc/rooms/storage/assign/0.1). Its existing files stay where they are.
+  - Create, update, retire and assign take the requester's operation-bound
+    step-up and are parked for another holder of vtc.rooms.admin (§7.4); the
+    screens say "Sent for approval" and link the action, never "Saved".
+    Retiring the default or a config with rooms is not offered, as the VTC
+    refuses both.
+  - Data rooms gains a Defaults card (the design's Settings ▸ Rooms; the
+    console has no Settings area): each room's and each member's limits, the
+    host-wide largest file, capacity and how long a deleted file is kept,
+    read-only, with the configuration sections that change them.
+
+  To carry those defaults, vtc/rooms/list's ext["org.openvtc"].roomFiles now
+  holds, when files are on, `defaults.{room,member}` (each byte measure capped
+  at the host ceiling, as reported limits are), `maxFileBytes`,
+  `orphanGraceHours` and `storageCapacityBytes` when set. Files off still
+  answers `{ enabled: false }` and nothing else. vti-rooms gains a read-only
+  BlobHost::host_limits() accessor.
+
+  The storage response shapes are rendered from the specification
+  (vta_sdk::openapi wrappers → admin-ui/openapi.json → wire.ts). Census
+  updates: the list-limit census and its Rust counterpart gain
+  vtc/storage/configs/list (100), the sidebar census gains Storage, and the
+  console document-type manifest gains the seven storage tasks.
+
+- **vtc**: Console room detail and Room usage pages — limits, per-member usage, activity and CSV ([#2079](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/2079))
+
+P9 part 3a (docs/05-design-notes/data-rooms-files.md §8.1): the admin
+  console's view of what the community stores for its rooms, over the
+  vtc/rooms/{get,usage,limits/set}/0.1 tasks #2077 serves.
+
+  - Room detail (/rooms/<roomId>, linked from each row of Data rooms): the
+    room's facts; its storage, files still on earlier configs and files
+    awaiting deletion; its ten largest files by size only; its limits with
+    where each came from (override, rooms policy, community default);
+    per-member usage on rooms that are not private (members who added nothing
+    are not listed — the host never saw them, so it is no roster); daily
+    activity over 30, 90 or 365 days. From it an administrator overrides the
+    room's limits, its members' default or one member's, clears an override,
+    or pauses and resumes uploads (filesEnabled alone, leaving every limit as
+    it is). Each change takes a reason, which the audit trail records.
+  - Room usage (/room-usage): the figures grouped by room, member, storage
+    config or day; rooms and configs past 80, 95 or 100 percent of a limit or
+    of capacity, listed first; CSV export of what is shown, with cells a
+    spreadsheet would run as a formula prefixed (OWASP CSV injection).
+  - Both pages need vtc.rooms.admin, as the room list now does. Neither shows
+    a record title, a file name or a file's contents: the host has none.
+
+  The response shapes are rendered from the specification
+  (vta_sdk::openapi wrappers → admin-ui/openapi.json → wire.ts), not written
+  by hand. Charts are hand-drawn SVG; the console has no chart library.
+
+  A size field is pre-filled in the largest unit that states it exactly
+  ("1 GiB", "1536 KB"), so re-saving a form changes nothing it was not asked
+  to. The room identifier is taken from the route as the router decoded it:
+  decoding it again would turn a did:web port's %3A into ':' and ask for a
+  different room.
+
+  Census updates: the list-limit census and its Rust counterpart gain
+  vtc/rooms/usage (100), the sidebar census gains Room usage, and the console
+  document-type manifest gains the three tasks.
+
+- **vtc**: DCQL trusted_authorities held at the response, not only published ([#1988](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/1988)) ([#2067](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/2067))
+
+A criterion's credential query may carry `trusted_authorities` (OpenID4VP 1.0
+  §6.1.1). The wallet uses it to choose a credential; the verifier still has to
+  check it, and the DCQL matcher does not read it. Until now the VTC published it
+  and ignored it.
+
+  - `vta_sdk::x509_issuer::x5c_issuer` returns, beside the issuer key, the key
+    identifiers of the authorities certifying it: each certificate's AKI, the SKI
+    of every certificate above the leaf, and that of the anchor reached.
+  - `aki` is held on both paths: a wallet response whose credential no named
+    authority certifies is refused `issuerNotTrusted`, and the join criterion
+    match rewrites a gated query to keys only such a credential offers. A DID
+    issuer has no chain and meets no such query. The anchors still decide trust;
+    `trusted_authorities` only narrows them.
+  - Registration refuses what cannot be held: `etsi_tl`, `openid_federation`,
+    `trusted_authorities` on a non-`dc+sd-jwt` query, an empty list, or an `aki`
+    value that is not base64url.
+
+- **vta**: Gate the TEE first-boot admin claim on a pre-registered c… ([#1987](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/1987))
+
+* feat(vta)!: gate the TEE first-boot admin claim on a pre-registered claim DID
+
+  POST /bootstrap/request (Mode B) accepted an anonymous caller: whoever
+  reached a fresh TEE VTA first claimed admin, gated only by the carve-out
+  sentinel, which a hostile host can make vanish by forging its absence or
+  dropping its write.
+
+  - pnm: `bootstrap claim-did create|show|discard` mints an Ed25519 claim
+    DID before the VTA exists; the private key lives only in the OS
+    keyring (file store refused). `bootstrap connect --slug` signs the
+    request with it and drops the key once attestation verifies.
+  - vta-sdk: optional `claim_signature` on the sealed BootstrapRequest,
+    over a domain tag || client pubkey || nonce.
+  - vta-config: `tee.bootstrap_claim_did`, settable only via the tenant
+    overlay (deny_unknown_fields kept; admin_did still forbidden),
+    validated at boot and covered by the attested config digest.
+  - vta-service: verify the signature, require client_did == the
+    configured claim DID (403, nothing written), then the carve-out;
+    burn the claim DID with the sentinel on success.
+
+
+
 ## [0.68.0](https://github.com/OpenVTC/verifiable-trust-infrastructure/compare/vta-sdk-v0.67.0...vta-sdk-v0.68.0) — 2026-10-13
 
 

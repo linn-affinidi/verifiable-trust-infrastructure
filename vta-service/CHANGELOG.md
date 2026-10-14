@@ -2,6 +2,105 @@
 
 Notable changes to the published crates. Generated from conventional commits by
 [git-cliff](https://git-cliff.org) when a release is cut — do not edit by hand.
+## [0.61.0](https://github.com/linn-affinidi/verifiable-trust-infrastructure/compare/vta-service-v0.60.0...vta-service-v0.61.0) — 2026-10-14
+
+
+### Added
+
+- **vta**: Rooms/owner/group/{create,add} — found a sealed room's group and admit members from the owner's agent ([#2088](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/2088))
+
+* feat(vta): rooms/owner/group/{create,add} — found a sealed room's group and admit members from the owner's agent
+
+  A sealed room (`attributed`, `private`) cannot be written to until its MLS
+  group exists, and the owner's half of a group — founding it, admitting a
+  member — was library code only. The VTA now serves both owner tasks
+  (trust-tasks-tf #763):
+
+  - `rooms/owner/group/create/0.1` founds the group with the owner as its only
+    leaf, at room epoch 1, the epoch a host records at registration. The gate
+    is the one issuing the room's credentials uses — control of its signing
+    key — checked by a new `keys::require_key_nameable` that applies
+    `sign_payload`'s scope, status, context and caller-key-filter gates
+    without signing anything. A room this VTA already holds a group for is
+    refused `alreadyExists`, never replaced.
+  - `rooms/owner/group/add/0.1` admits a member's KeyPackage, remote first:
+    the add is built on a copy and kept as a pending admission
+    (`room-add:<room>` in `room_groups`, the advanced group snapshot with its
+    link, commit and Welcome) beside the untouched live group; the room is
+    advanced at its host with `rooms/epoch/mint` (link, commit, the owner's
+    `admin` presentation); only an accepted advance replaces the live group.
+    A refusal (`hostRefused`, or `epochConflict` on `nonSequential`) discards
+    it. An unknown outcome (`hostUnreachable`) KEEPS it, and the next admission
+    asks the host its epoch (`rooms/info`) and applies or discards it first —
+    a key holder cannot process its own commit from the wire, so the pending
+    group is the only way to follow a host that did advance. The Welcome is
+    returned for delivery to the newcomer's key holder, never sent to the host.
+    The KeyPackage must identify `member` (`keyPackageInvalid` otherwise); a
+    member already in the group is `alreadyMember`; no `admin` grant in the
+    vault is `noAuthority`, before anything is built.
+
+- **vta**: Gate the TEE first-boot admin claim on a pre-registered c… ([#1987](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/1987))
+
+* feat(vta)!: gate the TEE first-boot admin claim on a pre-registered claim DID
+
+  POST /bootstrap/request (Mode B) accepted an anonymous caller: whoever
+  reached a fresh TEE VTA first claimed admin, gated only by the carve-out
+  sentinel, which a hostile host can make vanish by forging its absence or
+  dropping its write.
+
+  - pnm: `bootstrap claim-did create|show|discard` mints an Ed25519 claim
+    DID before the VTA exists; the private key lives only in the OS
+    keyring (file store refused). `bootstrap connect --slug` signs the
+    request with it and drops the key once attestation verifies.
+  - vta-sdk: optional `claim_signature` on the sealed BootstrapRequest,
+    over a domain tag || client pubkey || nonce.
+  - vta-config: `tee.bootstrap_claim_did`, settable only via the tenant
+    overlay (deny_unknown_fields kept; admin_did still forbidden),
+    validated at boot and covered by the attested config digest.
+  - vta-service: verify the signature, require client_did == the
+    configured claim DID (403, nothing written), then the carve-out;
+    burn the claim DID with the sentinel on success.
+
+
+
+### Fixed
+
+- **vta**: Rooms/owner/register signs rooms/create as the owner, so a VTC host accepts it ([#2086](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/2086))
+
+* fix(vta): rooms/owner/register signs rooms/create as the owner, so a VTC host accepts it
+
+  `rooms/owner/register/0.1` had the VTA send `rooms/create` signed with its own
+  DID (`{vta_did}#key-0`) while naming the caller as `ownerDid`. `rooms/create`
+  is issued by its Owner, and every host — the VTC and room-host alike, through
+  `vti_rooms::authz::authorize_create` — records as owner only the party whose
+  proof is on the request. So every registration through the VTA was refused
+  unless the owner was the VTA itself, and a VTC's rooms policy then judges
+  creation against that signer, who must be a member of the community.
+
+  The register specification says the key holder "speaks to the host as its
+  principal" (actsAsSubject). It now does: the outbound `rooms/create` is
+  issued and signed by the owner — `ownerDid`, or the caller when absent —
+  through the gated key oracle as before.
+
+  The owner must be a DID this agent holds the signing key for, in a context
+  the caller acts in (`room_host::owner_signing_key`):
+
+  - this agent's own DID: its `#key-0`, as before;
+  - a did:webvh it minted: the caller must act in the DID's context; the
+    method is the first `assertionMethod` entry of the DID's own stored log
+    (no resolution) whose public key is an active Ed25519 record of that same
+    context — matched by key bytes, so template DIDs that number their
+    methods from #key-1 over records named #key-0 sign under the published id;
+  - a did:key: an active record with that key in a context the caller acts in.
+
+  Anything else is `permissionDenied`, worded the same whether the DID is
+  unknown or held for another context, and saying to name an `ownerDid` this
+  agent holds (a `pnm` session's did:key, held client-side, is not one). The
+  oracle still re-checks the key when signing. A VTA with no DID of its own can
+  now register rooms for owners it holds keys for.
+
+
+
 ## [0.60.0](https://github.com/OpenVTC/verifiable-trust-infrastructure/compare/vta-service-v0.59.0...vta-service-v0.60.0) — 2026-10-13
 
 

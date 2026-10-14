@@ -2,6 +2,84 @@
 
 Notable changes to the published crates. Generated from conventional commits by
 [git-cliff](https://git-cliff.org) when a release is cut — do not edit by hand.
+## [0.44.1](https://github.com/linn-affinidi/verifiable-trust-infrastructure/compare/vti-common-v0.44.0...vti-common-v0.44.1) — 2026-10-14
+
+
+### Added
+
+- **vtc**: Room usage, room detail and limit overrides — vtc/rooms/{get,usage,limits/set} and rooms/usage ([#2077](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/2077))
+
+P9 part 2 (docs/05-design-notes/data-rooms-files.md §6.2–6.3, §8.1): the host
+  tasks the console's room detail and Usage pages read, over the history and
+  overrides #2073 put in vti-rooms.
+
+  vtc/rooms/get (vtc.rooms.admin): one room's host record, assigned config and
+  every earlier config still holding its blobs, effective limits with each scope's
+  source and the host ceiling, usage and orphans, the ten largest blobs by size
+  only, and on rooms that are not private a count of members with files — never
+  their DIDs (item 5).
+
+  vtc/rooms/usage (vtc.rooms.admin): rows grouped by room, member, storage config
+  or day, filtered by room, member, config and an inclusive date range (default
+  the last 30 days; invalidRange past 400 days, inverted, or before the oldest
+  kept day), sorted, and paged by a cursor bound to its query (invalidCursor
+  otherwise). Member figures only on rooms that are not private
+  (memberUsageUnavailable when one is named). Activity by config is attributed to
+  each room's current assignment.
+
+  vtc/rooms/limits/set (vtc.rooms.admin): an override for the room, its members by
+  default, or one member; refuses aboveCeiling, memberLimitsUnavailable and
+  invalidCombination as declared, answers the effective limits, the target scope's
+  usage and overLimit, and is audited (new RoomLimitsChanged event: room, target,
+  previous, current, reason). Not parked, as the specification says: an allowance
+  is reversible and loses nothing.
+
+  rooms/usage (the room owner's read, an admin chain) on both hosts, through
+  vti_rooms::blob_tasks::usage: one entry per member holding storage or an
+  override, paged; notAvailable on a private room.
+
+  vtc/rooms/list moves to vtc.rooms.admin, as §6.2 says it should: a community can
+  hand room hosting to someone who is not a full administrator.
+
+  Both censuses carry the new tasks: conformance witnesses for the three, and
+  error-code witnesses for every code they declare.
+
+- **vtc**: Room files in S3 through the community's VTA — one presigned request per object, no storage credential held ([#2063](https://github.com/linn-affinidi/verifiable-trust-infrastructure/pull/2063))
+
+A storage config of kind `s3` with `auth: {mode: vta-account, context,
+  account}` (vtc/_shared/0.1 room-storage, dtgwg-trust-tasks-tf#758) keeps
+  room files in a bucket whose credential only the community's VTA holds.
+  For each object operation the VTC asks its VTA for one presigned request
+  (`external/credentials/issue/0.1` against an `s3-static-presign` account):
+  one action on one object, prefix `<config prefix>rooms/<hash>/`, for 300
+  seconds. The VTA checks the binding, `external-auth-use`, the account's
+  state, the scope against its ceiling, the TTL and the rate, audits the
+  issuance, and seals the request to this community's X25519 key inside a
+  `#response` whose proof is verified as the VTA's before it is read.
+
+  The VTA is reached over the VTC's existing messaging socket (TSP >
+  DIDComm, by the VTA's advertised services), so the VTA needs no inbound
+  address for this, and the community holds no storage secret at rest.
+
+  - vti-common: `blob_store::presigned` (feature `blob-presigned`) — a
+    `BlobStore` over a `Presigner`. Each request is checked before use
+    (https, the asked method, a path ending in the object's key); no
+    redirects; GETs are reused until shortly before they expire; a put
+    streams with Content-Length; a ranged get checks the length returned.
+  - vtc-service: one link to the VTA. `vta_link::VtaLink` (#2060's
+    `keys/sign-jws` link) now runs on `outbound::PeerTasks`, the
+    sign/send/await-verified-reply exchange the git bridge also uses, and
+    `rooms::vta_storage::VtaStorage` issues storage credentials over it.
+  - storage configs: create/update ask the VTA about the account (a canary
+    read under `<prefix>probe/`) and refuse `unknownAccount`, or name the
+    member at fault for a scope or TTL the binding cannot cover; the probe
+    authenticates through the store's own health check; `credentialState`
+    carries the context.
+  - Docs: `docs/02-vta/data-rooms.md` setup at the VTA;
+    `data-rooms-files.md` P4b.
+
+
+
 ## [0.44.0](https://github.com/OpenVTC/verifiable-trust-infrastructure/compare/vti-common-v0.43.0...vti-common-v0.44.0) — 2026-10-13
 
 
